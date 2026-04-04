@@ -9,7 +9,7 @@ Connect to any TikTok Live stream and receive real-time events in PowerShell. No
 ```powershell
 Import-Module PirateTok.Live
 
-$conn = Connect-TikTokLive "someone"
+$conn = Connect-TikTokLive "username_here"
 
 while ($true) {
     $events = Receive-TikTokFrame $conn
@@ -69,16 +69,16 @@ Install-Module PirateTok.Live
 
 ```powershell
 # Standard: username -> auth + room ID + WSS, all automatic
-$conn = Connect-TikTokLive "someone"
+$conn = Connect-TikTokLive "username_here"
 
 # Pre-fetched auth + room ID (useful for GUIs that cache these)
 $conn = Connect-TikTokLive -RoomId 7624600804717316886 -Ttwid $cookie
 
 # Override user agent
-$conn = Connect-TikTokLive "someone" -UserAgent "Mozilla/5.0 ..."
+$conn = Connect-TikTokLive "username_here" -UserAgent "Mozilla/5.0 ..."
 
 # Pass session cookies (for 18+ room info only)
-$conn = Connect-TikTokLive "someone" -Cookies "sessionid=xxx; sid_tt=xxx"
+$conn = Connect-TikTokLive "username_here" -Cookies "sessionid=xxx; sid_tt=xxx"
 ```
 
 ## Error handling
@@ -97,7 +97,7 @@ All errors throw `TikTokLiveException` with an `ErrorKind` property:
 
 ```powershell
 try {
-    $rid = Get-TikTokRoomId "someone"
+    $rid = Get-TikTokRoomId "username_here"
 } catch {
     $ex = $_.Exception
     if ($ex -is [TikTokLiveException]) {
@@ -170,7 +170,7 @@ Every `.User` object includes:
 Room info is **optional** and separate from WSS. Only needed for title, viewer counts, and stream URLs.
 
 ```powershell
-$rid = Get-TikTokRoomId "someone"
+$rid = Get-TikTokRoomId "username_here"
 $info = Get-TikTokStreamInfo $rid
 
 # For 18+ rooms, pass session cookies:
