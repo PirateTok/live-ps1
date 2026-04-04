@@ -1,6 +1,6 @@
 @{
     RootModule        = 'PirateTok.Live.psm1'
-    ModuleVersion     = '0.1.0'
+    ModuleVersion     = '0.1.1'
     GUID              = 'a7e3b1c4-9f2d-4e8a-b5c6-1d3f7a8e9b0c'
     Author            = 'Zmole Cristian'
     CompanyName       = 'PirateTok'
@@ -22,9 +22,9 @@
         PSData = @{
             Tags         = @('tiktok', 'live', 'websocket', 'streaming', 'events', 'chat', 'protobuf')
             LicenseUri   = 'https://github.com/PirateTok/live-ps1/blob/main/LICENSE'
-            ProjectUri   = 'https://github.com/PirateTok/live-ps1'
+            ProjectUri   = 'https://piratetok.boats/'
             IconUri      = 'https://raw.githubusercontent.com/PirateTok/live-ps1/main/logo.png'
-            ReleaseNotes = 'Initial release -- 8 cmdlets, 64 decoded event types, typed errors, UA rotation, sub-routed convenience events, enriched user fields, PS 5.1 + PS 7 support.'
+            ReleaseNotes = 'Set project URL to piratetok.boats.'
         }
     }
 }
