@@ -158,6 +158,40 @@ Test-Case 'proxy: wrong credentials -> WSS dial fails at CONNECT with WebSocketE
     Check ($kind -like 'WebSocketError: proxy CONNECT failed: HTTP/1.1 407*') $kind
 }
 
+Test-Case 'tls: self-signed fake rejected by default and with a wrong pin; accepted only with the exact pin' {
+    $outcome = {
+        param($pin)
+        [PirateTok.Live.TlsTrust]::PinnedThumbprint = $pin
+        $http = try { $null = & $module { param($p) Get-TikTokTtwid -Proxy $p -NoRetry } $proxyUrl; 'ok' }
+                catch [PirateTok.Live.TikTokLiveException] { $_.Exception.ErrorKind }
+        $wss = & $module {
+            param($p)
+            try { $ws = Open-TikTokWebSocket -Url 'wss://webcast-ws.tiktok.com/x' -Cookie 'ttwid=x' -UserAgent 'UA' -Proxy $p; Close-TikTokWebSocket $ws; 'ok' }
+            catch [PirateTok.Live.TikTokLiveException] { if ($_.Exception.Message -like 'tls: handshake*') { 'TlsRejected' } else { $_.Exception.Message } }
+        } $proxyUrl
+        "$http/$wss"
+    }
+    $default = & $outcome $null
+    $wrong = & $outcome ('00' * 20)
+    $exact = & $outcome $cert.Thumbprint
+    [PirateTok.Live.TlsTrust]::PinnedThumbprint = $cert.Thumbprint
+    Check ($default -eq 'HttpError/TlsRejected') "default trust: $default"
+    Check ($wrong -eq 'HttpError/TlsRejected') "wrong pin: $wrong"
+    Check ($exact -eq 'ok/ok') "exact pin: $exact"
+}
+
+Test-Case 'tls: Validate accepts only SslPolicyErrors.None unless the exact pin matches' {
+    [PirateTok.Live.TlsTrust]::PinnedThumbprint = $null
+    $none = [System.Net.Security.SslPolicyErrors]::None
+    $chain = [System.Net.Security.SslPolicyErrors]::RemoteCertificateChainErrors
+    $name = [System.Net.Security.SslPolicyErrors]::RemoteCertificateNameMismatch
+    Check ([PirateTok.Live.TlsTrust]::Validate($null, $cert, $null, $none)) 'valid chain accepted'
+    Check (-not [PirateTok.Live.TlsTrust]::Validate($null, $cert, $null, $chain)) 'chain error rejected'
+    Check (-not [PirateTok.Live.TlsTrust]::Validate($null, $cert, $null, $name)) 'name mismatch rejected'
+    [PirateTok.Live.TlsTrust]::PinnedThumbprint = $cert.Thumbprint
+    Check ([PirateTok.Live.TlsTrust]::Validate($null, $cert, $null, $chain)) 'exact pin accepted'
+}
+
 Test-Case 'proxy: socks5 is rejected explicitly (HTTP CONNECT only)' {
     $kind = try { Get-TikTokTtwid -Proxy 'socks5://127.0.0.1:1080' -NoRetry; 'none' } catch [PirateTok.Live.TikTokLiveException] { $_.Exception.ErrorKind }
     Check ($kind -eq 'InvalidUrl') $kind

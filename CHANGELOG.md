@@ -12,5 +12,6 @@ Full parity rewrite (module split into `src/*.ps1`). **Breaking API.**
 - Events: 64 typed message types decoded by a schema-driven codec; every other type → `Unknown { Method, RawPayload }`; Follow/Share/Join/LiveEnded sub-routing. Fixes wrong Gift/Like field tags of 0.1.x.
 - `-Proxy` (HTTP + WSS CONNECT tunnel, Basic auth from `user:pass@`, env fallback; SOCKS rejected explicitly), `-Language` / `-Region`, `-NoCompress`, `-HeartbeatInterval` (also the `heartbeat_duration` URL param); user `-Cookies` now actually reach the WSS.
 - Helpers: `New-TikTokGiftStreakTracker`, `New-TikTokLikeAccumulator`, `New-TikTokProfileCache`, `Get-TikTokProfile`; gift helpers `Test-TikTokComboGift`, `Test-TikTokStreakOver`, `Get-TikTokDiamondTotal`.
-- Tests: offline unit suite, replay vs live-testdata manifests, discipline scanner.
+- TLS: certificates validated by the platform trust store on every HTTP + WSS connection; WSS handshake failures surface as `WebSocketError "tls: …"`.
+- Tests: offline unit suite (incl. examples parse + cmdlet check), wire suite (CONNECT proxy, TLS default/wrong-pin rejected), replay vs live-testdata manifests, discipline scanner.
 - Project URL: https://piratetok.rosint.org/

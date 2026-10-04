@@ -323,5 +323,21 @@ Test-Case 'profile: SIGI parse + private mapping' {
     Check ((ErrKind { ConvertFrom-TikTokProfileHtml $priv 'x' }) -eq 'ProfilePrivate') 'private'
 }
 
+# ---- F17: examples parse and only call exported cmdlets ----
+
+$global:Exported = @((Get-Module PirateTok.Live).ExportedFunctions.Keys)
+foreach ($ex in Get-ChildItem (Join-Path $PSScriptRoot '../examples') -Filter *.ps1) {
+    $global:ExamplePath = $ex.FullName
+    Test-Case "example $($ex.Name) parses and its TikTok cmdlets exist" {
+        $tokens = $null; $errs = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($global:ExamplePath, [ref]$tokens, [ref]$errs)
+        Check ($errs.Count -eq 0) "parse errors: $($errs | ForEach-Object Message)"
+        $calls = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
+            ForEach-Object { $_.GetCommandName() } | Where-Object { $_ -like '*-TikTok*' } | Sort-Object -Unique
+        Check (@($calls).Count -gt 0) 'no TikTok cmdlet calls'
+        foreach ($c in $calls) { Check ($global:Exported -contains $c) "$c is not exported" }
+    }
+}
+
 Write-Host "`n--- $script:passed passed, $script:failed failed ---"
 if ($script:failed -gt 0 -or $script:passed -eq 0) { exit 1 }

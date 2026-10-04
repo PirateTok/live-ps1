@@ -64,11 +64,15 @@ function Open-TikTokWebSocket {
         }
         $validate = [System.Net.Security.RemoteCertificateValidationCallback][PirateTok.Live.TlsTrust].GetMethod('Validate').CreateDelegate([System.Net.Security.RemoteCertificateValidationCallback])
         $ssl = [System.Net.Security.SslStream]::new($tcp.GetStream(), $false, $validate)
-        if ($PSVersionTable.PSEdition -eq 'Desktop') {
-            # .NET Framework may default to TLS 1.0 — TikTok needs 1.2
-            $ssl.AuthenticateAsClient($wsHost, $null, [System.Security.Authentication.SslProtocols]::Tls12, $false)
-        } else {
-            $ssl.AuthenticateAsClient($wsHost)
+        try {
+            if ($PSVersionTable.PSEdition -eq 'Desktop') {
+                # .NET Framework may default to TLS 1.0 — TikTok needs 1.2
+                $ssl.AuthenticateAsClient($wsHost, $null, [System.Security.Authentication.SslProtocols]::Tls12, $false)
+            } else {
+                $ssl.AuthenticateAsClient($wsHost)
+            }
+        } catch [System.Management.Automation.MethodInvocationException] {
+            throw (New-TikTokError 'WebSocketError' "tls: handshake with $wsHost failed: $($_.Exception.GetBaseException().Message)")
         }
 
         $key = [byte[]]::new(16); [System.Random]::new().NextBytes($key)
