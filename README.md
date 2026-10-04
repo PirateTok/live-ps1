@@ -9,28 +9,30 @@ Connect to any TikTok Live stream and receive real-time events in PowerShell. No
 ```powershell
 Import-Module PirateTok.Live
 
-$conn = Connect-TikTokLive "username_here"
-
-while ($true) {
-    $events = Receive-TikTokFrame $conn
-    foreach ($e in $events) {
-        switch ($e.Method) {
-            "WebcastChatMessage" { Write-Host "[chat] $($e.User.UniqueId): $($e.Content)" }
-            "WebcastGiftMessage" { Write-Host "[gift] $($e.User.UniqueId) sent $($e.GiftName) x$($e.RepeatCount) ($($e.DiamondCount) diamonds)" }
-            "Follow"            { Write-Host "[follow] $($e.User.UniqueId)" }
-            "Join"              { Write-Host "[join] $($e.User.UniqueId)" }
-            "Share"             { Write-Host "[share] $($e.User.UniqueId)" }
-            "LiveEnded"         { Write-Host "[ended]"; break }
-        }
+$client = Connect-TikTokLive "username_here"
+Start-TikTokLive $client -OnEvent {
+    param($e)
+    switch ($e.Type) {
+        'Chat'      { Write-Host "[chat] $($e.Data.user.unique_id): $($e.Data.comment)" }
+        'Gift'      { Write-Host "[gift] $($e.Data.user.unique_id) sent $($e.Data.gift_details.name) x$($e.Data.repeat_count)" }
+        'Follow'    { Write-Host "[follow] $($e.Data.user.unique_id)" }
+        'LiveEnded' { Disconnect-TikTokLive $client }
     }
 }
+```
 
-Close-TikTokLive $conn
+Or poll it yourself (game loops, GUIs):
+
+```powershell
+$client = Connect-TikTokLive "username_here"
+while ($client.State -ne 'Disconnected') {
+    foreach ($e in Receive-TikTokEvent $client -TimeoutMs 500) { ... }
+}
 ```
 
 ## Install
 
-Requires PowerShell >= 5.1.
+Requires PowerShell >= 5.1 (Windows PowerShell) or PowerShell 7+.
 
 ```powershell
 Install-Module PirateTok.Live
@@ -47,7 +49,7 @@ Install-Module PirateTok.Live
 | **C#** | `dotnet add package PirateTok.Live` | [live-cs](https://github.com/PirateTok/live-cs) |
 | **Java** | `com.piratetok:live` | [live-java](https://github.com/PirateTok/live-java) |
 | **Lua** | `luarocks install piratetok-live-lua` | [live-lua](https://github.com/PirateTok/live-lua) |
-| **Elixir** | `{:piratetok_live, "~> 0.1"}` | [live-ex](https://github.com/PirateTok/live-ex) |
+| **Elixir** | `{:piratetok_live, "~> 0.2"}` | [live-ex](https://github.com/PirateTok/live-ex) |
 | **Dart** | `dart pub add piratetok_live` | [live-dart](https://github.com/PirateTok/live-dart) |
 | **C** | `#include "piratetok.h"` | [live-c](https://github.com/PirateTok/live-c) |
 | **Shell** | `bpkg install PirateTok/live-sh` | [live-sh](https://github.com/PirateTok/live-sh) |
@@ -56,152 +58,144 @@ Install-Module PirateTok.Live
 
 | Cmdlet | Description |
 |--------|-------------|
-| `Connect-TikTokLive` | Connect to a live room — by username, or by `-RoomId`/`-Ttwid` |
-| `Get-TikTokTtwid` | Fetch an auth cookie |
-| `Get-TikTokRoomId` | Resolve username to room ID |
-| `Get-TikTokStreamInfo` | Fetch room metadata (title, viewers, stream URLs) |
-| `Get-TikTokBestStreamUrl` | Pick the best FLV stream URL from room info by quality tier |
-| `Send-TikTokHeartbeat` | Send a heartbeat frame (called automatically by `Receive-TikTokFrame`) |
-| `Receive-TikTokFrame` | Read and decode the next WSS frame |
-| `Close-TikTokLive` | Close the connection |
+| `Get-TikTokRoomId` | check_online — `RoomId` + `AnchorId` (streamer user id) |
+| `Connect-TikTokLive` | Resolve the room and open the event stream; returns a client |
+| `Receive-TikTokEvent` | Poll the client (heartbeats, stale detection, acks, reconnects handled inside) |
+| `Start-TikTokLive` | Blocking loop running `-OnEvent` until the client disconnects |
+| `Disconnect-TikTokLive` | Close the stream and stop reconnecting |
+| `Get-TikTokRoomInfo` | Optional room metadata: title, viewers, likes, FLV stream URLs |
+| `Get-TikTokRoomAudience` | Optional full viewer roster (login-gated) |
+| `Get-TikTokTtwid` | Fetch a ttwid cookie (retried while TikTok omits it) |
+| `ConvertTo-TikTokEvents` | Decode one wire message into events |
+| `Get-TikTokTopViewers` | Top-viewers box from a `RoomUserSeq` event |
+| `Test-TikTokComboGift` / `Test-TikTokStreakOver` / `Get-TikTokDiamondTotal` | Gift helpers |
+| `New-TikTokGiftStreakTracker` / `New-TikTokLikeAccumulator` / `New-TikTokProfileCache` / `Get-TikTokProfile` | Stateful helpers |
+| `Get-TikTokRandomUserAgent` / `Get-TikTokSystemTimezone` / `Get-TikTokSystemLocale` | UA pool + locale detection |
 
-## Connect-TikTokLive
+## Connect-TikTokLive options
 
 ```powershell
-# Standard: username -> auth + room ID + WSS, all automatic
-$conn = Connect-TikTokLive "username_here"
-
-# Pre-fetched auth + room ID (useful for GUIs that cache these)
-$conn = Connect-TikTokLive -RoomId 7624600804717316886 -Ttwid $cookie
-
-# Override user agent
-$conn = Connect-TikTokLive "username_here" -UserAgent "Mozilla/5.0 ..."
-
-# Pass session cookies (for 18+ room info only)
-$conn = Connect-TikTokLive "username_here" -Cookies "sessionid=xxx; sid_tt=xxx"
+$client = Connect-TikTokLive "username_here" `
+    -Cdn eu `                         # global (default) / eu / us
+    -TimeoutSec 15 `                  # HTTP + handshake timeout (default 10)
+    -HeartbeatInterval 10 `           # seconds between heartbeats; also sent as heartbeat_duration (default 10)
+    -StaleTimeout 90 `                # reconnect after N seconds of silence (default 60)
+    -MaxRetries 10 `                  # consecutive failed reconnects before giving up (default 5)
+    -Proxy http://host:port `         # HTTP + WSS (CONNECT tunnel); falls back to HTTPS_PROXY / HTTP_PROXY
+    -UserAgent "Mozilla/5.0 ..." `    # fixed UA instead of the random pool
+    -Cookies "sessionid=xxx; sid_tt=xxx" `  # appended to the WSS cookie header
+    -Language en -Region US `         # override detected system locale
+    -NoCompress                       # ask for uncompressed WSS payloads
 ```
 
-## Error handling
+Cookies are **only required for** room metadata on 18+ rooms (`Get-TikTokRoomInfo`) and the audience roster (`Get-TikTokRoomAudience`). They are **not required** for connecting or streaming events.
 
-All errors throw `TikTokLiveException` with an `ErrorKind` property:
+### Reconnection
+
+Stale/dropped connections reconnect automatically with backoff 2s → 4s → 8s → 16s → 30s cap. The ttwid + user agent are fetched once and reused across reconnects; they rotate only on `DEVICE_BLOCKED` (2 s retry) or when a session died within 30 s. `MaxRetries` counts *consecutive* failures — a session that stayed up 30 s resets the counter. A ttwid fetch failure is a failed attempt (`Reconnecting` fires), never an abort. `Disconnected` fires only when retries run out or you call `Disconnect-TikTokLive`.
+
+## Events
+
+Every event is `[pscustomobject]@{ Type; Method; Data; RawPayload }`. `Data` is the decoded protobuf as a hashtable with snake_case field names (`$e.Data.user.nickname`, `$e.Data.comment`, …).
+
+- **64 typed message types** (Tier A + Tier B) — `Chat`, `Gift`, `Like`, `Member`, `Social`, `RoomUserSeq`, `Control`, `LiveIntro`, `RoomMessage`, `Caption`, `GoalUpdate`, `ImDelete`, `RankUpdate`, `Poll`, `Envelope`, `RoomPin`, `LinkMicBattle`, `EmoteChat`, `SubNotify`, … (the `Type` names match the other PirateTok libs).
+- **Sub-routed convenience events** fire alongside the raw event: `Follow` / `Share` (Social action 1 / 2–5), `Join` (Member action 1), `LiveEnded` (Control action 3).
+- **Unknown** — any other message type: `Method` + `RawPayload` bytes, nothing lost.
+- **Lifecycle** — `Connected` (`room_id`, `anchor_id`), `RoomEntered`, `Reconnecting` (`attempt`, `max_retries`, `delay_secs`, `reason`, `device_blocked`), `Disconnected` (`reason`), `Error` (undecodable frame).
+
+`user` objects carry the enriched fields: `id`, `unique_id`, `display_id`, `nickname`, `verified`, `follow_info` (follower/following counts, follow status), `fans_club.data` (club name + level), `badge_list` (`badge_scene`: 1 moderator, 6 top gifter, 8 gifter level, 10 member level; level in `log_extra.level`), `is_follower`, `is_following`, `is_subscribe`, `pay_score`, `fan_ticket_count`, `top_vip_no`.
+
+### Top viewers (WSS, no cookies)
+
+```powershell
+'RoomUserSeq' { Get-TikTokTopViewers $e.Data | ForEach-Object { "$($_.rank) $($_.user.nickname) $($_.score)" } }
+```
+
+`RoomUserSeq` carries `viewer_count`, `total_user`, `anonymous`, `pop_str`, `ranks_list`, `seats_list`.
+
+## Errors
+
+All errors throw `[PirateTok.Live.TikTokLiveException]` with `.ErrorKind` (and `.Code` where TikTok sent one):
 
 | ErrorKind | Meaning |
 |-----------|---------|
 | `UserNotFound` | Username does not exist on TikTok |
 | `HostNotOnline` | User exists but is not currently live |
-| `AgeRestricted` | 18+ room — pass session cookies to `Get-TikTokStreamInfo` |
-| `TikTokBlocked` | IP/fingerprint blocked, rate-limited, or geo-blocked |
-| `DeviceBlocked` | WSS handshake returned DEVICE_BLOCKED |
-| `ApiError` | Other TikTok API error (includes status code) |
-| `ConnectFailed` | WSS handshake or HTTP request failed |
+| `ApiError` | Other TikTok API status code (`.Code`) |
+| `TikTokBlocked` | HTTP 403/429, or an empty / non-JSON response |
+| `AgeRestricted` | 18+ room — pass session cookies to `Get-TikTokRoomInfo` |
+| `SessionRequired` | Audience roster needs session cookies |
+| `DeviceBlocked` | WSS handshake returned DEVICE_BLOCKED (handled by reconnect) |
+| `InvalidResponse` | Malformed or unexpected response |
+| `HttpError` / `WebSocketError` | Transport failure |
+| `ProfilePrivate` / `ProfileNotFound` / `ProfileError` / `ProfileScrape` | Profile lookup |
 
 ```powershell
-try {
-    $rid = Get-TikTokRoomId "username_here"
-} catch {
-    $ex = $_.Exception
-    if ($ex -is [TikTokLiveException]) {
-        switch ($ex.ErrorKind) {
-            "UserNotFound"  { Write-Host "user does not exist" }
-            "HostNotOnline" { Write-Host "user is offline" }
-            "TikTokBlocked" { Write-Host "blocked: $($ex.Message)" }
-        }
+try { $live = Get-TikTokRoomId "username_here" }
+catch [PirateTok.Live.TikTokLiveException] {
+    switch ($_.Exception.ErrorKind) {
+        'HostNotOnline' { 'offline' }
+        'UserNotFound'  { 'no such user' }
+        default         { "[$($_.Exception.ErrorKind)] $($_.Exception.Message)" }
     }
 }
 ```
 
-## Events
-
-### Convenience events (sub-routed)
-
-These fire alongside the raw proto events — use whichever granularity you need:
-
-| Event | Source | Condition |
-|-------|--------|-----------|
-| `Follow` | `WebcastSocialMessage` | action == 1 |
-| `Share` | `WebcastSocialMessage` | action == 3 or 4 |
-| `Join` | `WebcastMemberMessage` | action == 1 |
-| `LiveEnded` | `WebcastControlMessage` | action == 3 |
-
-### Raw proto events
-
-| Method | Key fields |
-|--------|------------|
-| `WebcastChatMessage` | `.User`, `.Content` |
-| `WebcastGiftMessage` | `.User`, `.GiftName`, `.GiftId`, `.DiamondCount`, `.RepeatCount`, `.ComboCount`, `.IsCombo` |
-| `WebcastLikeMessage` | `.User`, `.Count`, `.TotalLikes` |
-| `WebcastMemberMessage` | `.User`, `.Action` |
-| `WebcastSocialMessage` | `.User`, `.Action` |
-| `WebcastRoomUserSeqMessage` | `.ViewerCount` |
-| `WebcastControlMessage` | `.Action` |
-
-All events carry `.Method` and `.RawPayload` (raw protobuf bytes).
-
-### User fields
-
-Every `.User` object includes:
-
-| Field | Type | Notes |
-|-------|------|-------|
-| `UserId` | int64 | TikTok user ID |
-| `UniqueId` | string | Username |
-| `Nickname` | string | Display name |
-| `DisplayId` | string | Display username |
-| `Bio` | string | Bio text |
-| `Verified` | bool | Verified badge |
-| `FollowStatus` | int64 | 0=none, 1=following, 2=mutual |
-| `IsFollower` | bool | Follows the streamer |
-| `IsFollowing` | bool | Streamer follows them |
-| `IsSubscribe` | bool | Subscriber/superfan |
-| `IsModerator` | bool | Has admin badge |
-| `IsTopGifter` | bool | Has rank list badge |
-| `GifterLevel` | string | USER_GRADE badge level |
-| `MemberLevel` | string | FANS badge level |
-| `FansClubName` | string | Fan club name |
-| `FansClubLevel` | int32 | Fan club level |
-| `FollowingCount` | int64 | Following count |
-| `FollowerCount` | int64 | Follower count |
-| `PayScore` | int64 | Payment score |
-| `FanTicket` | int64 | Gifting score |
-| `TopVipNo` | int32 | VIP ranking |
-
-## Stream info
-
-Room info is **optional** and separate from WSS. Only needed for title, viewer counts, and stream URLs.
+## Room info (optional)
 
 ```powershell
-$rid = Get-TikTokRoomId "username_here"
-$info = Get-TikTokStreamInfo $rid
-
-# For 18+ rooms, pass session cookies:
-$info = Get-TikTokStreamInfo $rid -Cookies "sessionid=xxx; sid_tt=xxx"
-
-# Pick best stream URL (falls through quality tiers)
-$best = Get-TikTokBestStreamUrl $info               # origin -> hd -> sd -> ld -> ao
-$sd   = Get-TikTokBestStreamUrl $info -Quality "sd"  # sd -> ld -> ao
-# Returns @{ Quality = "origin"; Url = "https://..." } or $null
+$live = Get-TikTokRoomId "username_here"
+$info = Get-TikTokRoomInfo $live.RoomId                                     # normal rooms
+$info = Get-TikTokRoomInfo $live.RoomId -Cookies "sessionid=xxx; sid_tt=xxx" # 18+ rooms
+$info.Title; $info.Viewers; $info.StreamUrl.FlvOrigin                         # FlvOrigin/FlvHd/FlvSd/FlvLd/FlvAo
 ```
 
-## Features
+## Audience roster (optional, login-gated)
 
-- **Zero signing dependency** — no API keys, no signing server, no external auth
-- **UA rotation** — 6 user agents (3 Firefox, 3 Chrome, mixed OS), rotated per request
-- **System timezone** — auto-detected via .NET/env/filesystem, falls back to UTC
-- **Typed errors** — `TikTokLiveException` with `.ErrorKind` for clean error handling
-- **Convenience events** — `Follow`, `Share`, `Join`, `LiveEnded` sub-routed from raw protos
-- **Enriched users** — badges, gifter/member level, fan club, follow status, moderator detection
-- **Protobuf codec** — hand-written binary encoder/decoder in pure PowerShell
-- **PS 5.1 + Win7 fallback** — raw TcpClient/SslStream WebSocket framing when `ClientWebSocket` is unavailable
-- **Auto-heartbeat** — `Receive-TikTokFrame` sends heartbeats every 10s automatically
+The full viewer list behind the web viewer panel. Session cookies are required for this call only — without them you get `SessionRequired`.
+
+```powershell
+$aud = Get-TikTokRoomAudience $live.RoomId -AnchorId $live.AnchorId -Cookies "sessionid=xxx; sid_tt=xxx"
+$aud.Total; $aud.Anonymous; $aud.Viewers | Format-Table Rank, Username, Nickname, Score
+```
+
+Omit `-AnchorId` to resolve it via room info (one extra request).
+
+## Helpers
+
+```powershell
+$tracker = New-TikTokGiftStreakTracker   # $tracker.Process($e.Data) -> EventGiftCount, TotalDiamondCount, IsFinal
+$likes   = New-TikTokLikeAccumulator     # $likes.Process($e.Data)   -> TotalLikeCount (monotonic), AccumulatedCount
+$cache   = New-TikTokProfileCache        # $cache.Fetch('username')  -> cached SIGI profile (5 min TTL)
+```
 
 ## Examples
 
 ```powershell
-pwsh examples/basic_chat.ps1 <username>       # connect + print events (30s)
-pwsh examples/online_check.ps1 <username>     # check if user is live
-pwsh examples/stream_info.ps1 <username>      # fetch metadata + stream URLs
-pwsh examples/gift_tracker.ps1 <username>     # track gifts with diamond totals (60s)
+pwsh examples/online_check.ps1 <username>             # check if user is live
+pwsh examples/basic_chat.ps1 <username>               # connect + print events
+pwsh examples/stream_info.ps1 <username> [cookies]    # metadata + FLV stream URLs
+pwsh examples/gift_streak.ps1 <username>              # gift streaks with per-event deltas
+pwsh examples/profile_lookup.ps1 <username>           # cached profile lookup
+pwsh examples/audience.ps1 <username> <cookies>       # full viewer roster (session cookies required)
 ```
+
+## Tests
+
+```powershell
+pwsh tests/unit.ps1         # offline: ttwid retry (local fake HTTP server), reconnect policy, parsers, framing
+pwsh tests/replay.ps1       # replay WSS captures vs live-testdata manifests (exact)
+pwsh tests/discipline.ps1   # R1 file size, R2 no silent error suppression
+```
+
+Replay needs testdata: `git clone https://github.com/PirateTok/live-testdata ../live-testdata`. Missing testdata is a failure, not a skip. Lookup order: `$env:PIRATETOK_TESTDATA`, `testdata/`, `../live-testdata/` (manifests in `manifests/` or `captures/manifests/`). The `_raw` captures are not in live-testdata — supply them via `testdata/` or `PIRATETOK_TESTDATA`.
+
+## How it works
+
+1. `GET /api-live/user/room` resolves the username to a room id (+ streamer id)
+2. Anonymous `GET https://www.tiktok.com/` yields a `ttwid` cookie — the only credential WSS needs
+3. Raw TLS WebSocket (TcpClient + SslStream, same code on PS 5.1 and 7) to `webcast-ws.tiktok.com`
+4. Heartbeat + `im_enter_room`, then protobuf frames decoded by a schema-driven codec (compiled C# via `Add-Type`, no protoc)
 
 ## License
 

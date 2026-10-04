@@ -1,78 +1,26 @@
 #!/usr/bin/env pwsh
-# Connect to a TikTok Live room and print events.
-
-param(
-    [Parameter(Mandatory=$true, Position=0)]
-    [string]$Username,
-    [int]$Duration = 30
-)
+# Connect and print chat, gifts, likes, joins, follows, viewer counts. Ctrl+C to stop.
+# Usage: pwsh examples/basic_chat.ps1 <username>
+param([Parameter(Mandatory, Position = 0)][string]$Username)
 
 $ErrorActionPreference = 'Stop'
 Import-Module "$PSScriptRoot/../PirateTok.Live.psd1" -Force
 
-Write-Host "Connecting to $Username..."
-$conn = Connect-TikTokLive $Username
-Write-Host "Connected! room_id=$($conn.RoomId) (running ${Duration}s)"
-Write-Host ""
-
-$deadline = [DateTime]::UtcNow.AddSeconds($Duration)
-$eventCount = 0
-
-try {
-    while ([DateTime]::UtcNow -lt $deadline) {
-        $events = Receive-TikTokFrame $conn
-        if ($null -eq $events) {
-            Write-Host "Connection closed."
-            break
-        }
-        foreach ($e in $events) {
-            $eventCount++
-            switch ($e.Method) {
-                "WebcastChatMessage" {
-                    $nick = if ($e.User) { $e.User.UniqueId } else { "?" }
-                    Write-Host "[CHAT] $nick`: $($e.Content)"
-                }
-                "WebcastGiftMessage" {
-                    $nick = if ($e.User) { $e.User.UniqueId } else { "?" }
-                    $name = if ($e.GiftName) { $e.GiftName } else { "gift" }
-                    $diamonds = if ($e.DiamondCount) { " ($($e.DiamondCount) diamonds)" } else { "" }
-                    $combo = if ($e.IsCombo) { " [COMBO x$($e.ComboCount)]" } else { "" }
-                    Write-Host "[GIFT] $nick sent $name x$($e.RepeatCount)$diamonds$combo"
-                }
-                "WebcastLikeMessage" {
-                    $nick = if ($e.User) { $e.User.UniqueId } else { "?" }
-                    Write-Host "[LIKE] $nick (total: $($e.TotalLikes))"
-                }
-                "Follow" {
-                    $nick = if ($e.User) { $e.User.UniqueId } else { "?" }
-                    Write-Host "[FOLLOW] $nick"
-                }
-                "Share" {
-                    $nick = if ($e.User) { $e.User.UniqueId } else { "?" }
-                    Write-Host "[SHARE] $nick"
-                }
-                "Join" {
-                    $nick = if ($e.User) { $e.User.UniqueId } else { "?" }
-                    Write-Host "[JOIN] $nick"
-                }
-                "WebcastRoomUserSeqMessage" {
-                    Write-Host "[VIEWERS] $($e.ViewerCount)"
-                }
-                "LiveEnded" {
-                    Write-Host "[ENDED] Stream ended."
-                    $deadline = [DateTime]::UtcNow
-                }
-                default {
-                    # skip raw duplicates of sub-routed events
-                    if ($e.Method -notin @("WebcastSocialMessage","WebcastMemberMessage","WebcastControlMessage")) {
-                        Write-Host "[OTHER] $($e.Method)"
-                    }
-                }
-            }
-        }
+$client = Connect-TikTokLive $Username
+Start-TikTokLive $client -OnEvent {
+    param($e)
+    $d = $e.Data
+    switch ($e.Type) {
+        'Connected' { Write-Host "connected — room $($d.room_id)" }
+        'Chat' { Write-Host "[chat] $($d.user.unique_id): $($d.comment)" }
+        'Gift' { Write-Host "[gift] $($d.user.unique_id) sent $($d.gift_details.name) x$($d.repeat_count)" }
+        'Like' { Write-Host "[like] $($d.user.unique_id) +$($d.count) (total $($d.total))" }
+        'Join' { Write-Host "[join] $($d.user.unique_id)" }
+        'Follow' { Write-Host "[follow] $($d.user.unique_id)" }
+        'Share' { Write-Host "[share] $($d.user.unique_id)" }
+        'RoomUserSeq' { Write-Host "[viewers] $($d.viewer_count)" }
+        'LiveEnded' { Write-Host '[ended]'; Disconnect-TikTokLive $client }
+        'Reconnecting' { Write-Host "[reconnecting] attempt $($d.attempt)/$($d.max_retries) in $($d.delay_secs)s — $($d.reason)" }
+        'Disconnected' { Write-Host "[disconnected] $($d.reason)" }
     }
-} finally {
-    Close-TikTokLive $conn
-    Write-Host ""
-    Write-Host "Done. $eventCount events in ${Duration}s."
 }
