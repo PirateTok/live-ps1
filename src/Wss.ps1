@@ -15,13 +15,17 @@ function Read-TikTokHttpHead([System.IO.Stream]$Stream) {
     return [System.Text.Encoding]::ASCII.GetString($buf.ToArray())
 }
 
+# Explicit -Proxy, else HTTPS_PROXY / HTTP_PROXY. Only HTTP CONNECT proxies (http://[user:pass@]host:port).
 function Resolve-TikTokProxy([string]$Proxy) {
-    if ($Proxy) { return $Proxy }
-    foreach ($var in 'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy') {
-        $val = [Environment]::GetEnvironmentVariable($var)
-        if ($val) { return $val }
+    $resolved = $Proxy
+    if (-not $resolved) {
+        foreach ($var in 'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy') {
+            $val = [Environment]::GetEnvironmentVariable($var)
+            if ($val) { $resolved = $val; break }
+        }
     }
-    return $null
+    if ($resolved) { Assert-TikTokProxy $resolved }
+    return $resolved
 }
 
 function Open-TikTokWebSocket {
@@ -44,7 +48,12 @@ function Open-TikTokWebSocket {
             $p = [Uri]$proxyUrl
             $tcp.Connect($p.Host, $(if ($p.Port -gt 0) { $p.Port } else { 8080 }))
             $net = $tcp.GetStream()
-            $req = [System.Text.Encoding]::ASCII.GetBytes("CONNECT ${wsHost}:443 HTTP/1.1`r`nHost: ${wsHost}:443`r`n`r`n")
+            $auth = ''
+            if ($p.UserInfo) {
+                $basic = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes([Uri]::UnescapeDataString($p.UserInfo)))
+                $auth = "Proxy-Authorization: Basic $basic`r`n"
+            }
+            $req = [System.Text.Encoding]::ASCII.GetBytes("CONNECT ${wsHost}:443 HTTP/1.1`r`nHost: ${wsHost}:443`r`n$auth`r`n")
             $net.Write($req, 0, $req.Length)
             $head = Read-TikTokHttpHead $net
             if ($head -notmatch '^HTTP/1\.\d 200') {
@@ -53,7 +62,8 @@ function Open-TikTokWebSocket {
         } else {
             $tcp.Connect($wsHost, 443)
         }
-        $ssl = [System.Net.Security.SslStream]::new($tcp.GetStream(), $false)
+        $validate = [System.Net.Security.RemoteCertificateValidationCallback][PirateTok.Live.TlsTrust].GetMethod('Validate').CreateDelegate([System.Net.Security.RemoteCertificateValidationCallback])
+        $ssl = [System.Net.Security.SslStream]::new($tcp.GetStream(), $false, $validate)
         if ($PSVersionTable.PSEdition -eq 'Desktop') {
             # .NET Framework may default to TLS 1.0 — TikTok needs 1.2
             $ssl.AuthenticateAsClient($wsHost, $null, [System.Security.Authentication.SslProtocols]::Tls12, $false)

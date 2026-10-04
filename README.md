@@ -81,12 +81,14 @@ $client = Connect-TikTokLive "username_here" `
     -HeartbeatInterval 10 `           # seconds between heartbeats; also sent as heartbeat_duration (default 10)
     -StaleTimeout 90 `                # reconnect after N seconds of silence (default 60)
     -MaxRetries 10 `                  # consecutive failed reconnects before giving up (default 5)
-    -Proxy http://host:port `         # HTTP + WSS (CONNECT tunnel); falls back to HTTPS_PROXY / HTTP_PROXY
+    -Proxy http://user:pass@host:port ` # HTTP + WSS via HTTP CONNECT (Basic auth from userinfo); falls back to HTTPS_PROXY / HTTP_PROXY
     -UserAgent "Mozilla/5.0 ..." `    # fixed UA instead of the random pool
     -Cookies "sessionid=xxx; sid_tt=xxx" `  # appended to the WSS cookie header
     -Language en -Region US `         # override detected system locale
     -NoCompress                       # ask for uncompressed WSS payloads
 ```
+
+Proxies: HTTP CONNECT proxies only, with optional Basic auth (`http://user:pass@host:port`). **SOCKS4/5 is not supported** — a `socks5://` proxy is rejected with `InvalidUrl` instead of being silently bypassed.
 
 Cookies are **only required for** room metadata on 18+ rooms (`Get-TikTokRoomInfo`) and the audience roster (`Get-TikTokRoomAudience`). They are **not required** for connecting or streaming events.
 
@@ -184,6 +186,7 @@ pwsh examples/audience.ps1 <username> <cookies>       # full viewer roster (sess
 
 ```powershell
 pwsh tests/unit.ps1         # offline: ttwid retry (local fake HTTP server), reconnect policy, parsers, framing
+pwsh tests/wire.ps1         # offline wire: local CONNECT proxy (Basic auth) + TLS fake — room/ttwid/WSS, UA/cookies/locale on the wire
 pwsh tests/replay.ps1       # replay WSS captures vs live-testdata manifests (exact)
 pwsh tests/discipline.ps1   # R1 file size, R2 no silent error suppression
 ```

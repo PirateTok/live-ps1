@@ -10,8 +10,18 @@ $script:HttpGet = {
     $handler = [System.Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
     $handler.UseCookies = $false
+    if ([PirateTok.Live.TlsTrust]::PinnedThumbprint) {
+        $handler.ServerCertificateCustomValidationCallback = [PirateTok.Live.TlsTrust].GetMethod('Validate').CreateDelegate(
+            [System.Func[System.Net.Http.HttpRequestMessage, System.Security.Cryptography.X509Certificates.X509Certificate2, System.Security.Cryptography.X509Certificates.X509Chain, System.Net.Security.SslPolicyErrors, bool]])
+    }
     if ($Proxy) {
-        $handler.Proxy = [System.Net.WebProxy]::new($Proxy)
+        # http://[user:pass@]host:port — credentials go out as Basic on the proxy's 407 challenge
+        $p = [Uri]$Proxy
+        $handler.Proxy = [System.Net.WebProxy]::new("$($p.Scheme)://$($p.Authority)")
+        if ($p.UserInfo) {
+            $user, $pass = [Uri]::UnescapeDataString($p.UserInfo) -split ':', 2
+            $handler.Proxy.Credentials = [System.Net.NetworkCredential]::new($user, $pass)
+        }
         $handler.UseProxy = $true
     }
     $client = [System.Net.Http.HttpClient]::new($handler)
@@ -34,6 +44,15 @@ $script:HttpGet = {
     }
 }
 
+# SOCKS is not supported (the WSS path speaks HTTP CONNECT only); fail loudly instead of
+# silently bypassing or half-using the proxy.
+function Assert-TikTokProxy([string]$Proxy) {
+    $scheme = ([Uri]$Proxy).Scheme
+    if ($scheme -notin 'http', 'https') {
+        throw (New-TikTokError 'InvalidUrl' "unsupported proxy scheme '$scheme' — only HTTP CONNECT proxies (http://[user:pass@]host:port)")
+    }
+}
+
 function Invoke-TikTokGet {
     param(
         [Parameter(Mandatory)][string]$Url,
@@ -50,6 +69,7 @@ function Invoke-TikTokGet {
         'Accept-Language' = 'en-US,en;q=0.9'
     }
     if ($Cookies) { $headers['Cookie'] = $Cookies }
+    if ($Proxy) { Assert-TikTokProxy $Proxy }
     return & $script:HttpGet $Url $headers $Proxy $TimeoutSec
 }
 

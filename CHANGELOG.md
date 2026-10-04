@@ -10,7 +10,7 @@ Full parity rewrite (module split into `src/*.ps1`). **Breaking API.**
 - `Get-TikTokRoomInfo` (was `Get-TikTokStreamInfo`): title, viewers, likes, FLV stream URLs, `AgeRestricted`.
 - New `Get-TikTokRoomAudience` (login-gated, `SessionRequired`) and `Get-TikTokTopViewers` (`RoomUserSeq.ranks_list`).
 - Events: 64 typed message types decoded by a schema-driven codec; every other type → `Unknown { Method, RawPayload }`; Follow/Share/Join/LiveEnded sub-routing. Fixes wrong Gift/Like field tags of 0.1.x.
-- `-Proxy` (HTTP + WSS CONNECT tunnel, env fallback), `-Language` / `-Region`, `-NoCompress`, `-HeartbeatInterval` (also the `heartbeat_duration` URL param); user `-Cookies` now actually reach the WSS.
+- `-Proxy` (HTTP + WSS CONNECT tunnel, Basic auth from `user:pass@`, env fallback; SOCKS rejected explicitly), `-Language` / `-Region`, `-NoCompress`, `-HeartbeatInterval` (also the `heartbeat_duration` URL param); user `-Cookies` now actually reach the WSS.
 - Helpers: `New-TikTokGiftStreakTracker`, `New-TikTokLikeAccumulator`, `New-TikTokProfileCache`, `Get-TikTokProfile`; gift helpers `Test-TikTokComboGift`, `Test-TikTokStreakOver`, `Get-TikTokDiamondTotal`.
 - Tests: offline unit suite, replay vs live-testdata manifests, discipline scanner.
 - Project URL: https://piratetok.rosint.org/

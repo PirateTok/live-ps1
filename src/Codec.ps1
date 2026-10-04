@@ -19,6 +19,18 @@ namespace PirateTok.Live {
         public TikTokLiveException(string kind, string message, long code) : base(message) { ErrorKind = kind; Code = code; }
     }
 
+    // TLS validation: system trust, plus one exactly pinned certificate when set
+    // (offline tests pin their self-signed fake server; null = system trust only).
+    public static class TlsTrust {
+        public static string PinnedThumbprint;
+        public static bool Validate(object sender, System.Security.Cryptography.X509Certificates.X509Certificate cert,
+                System.Security.Cryptography.X509Certificates.X509Chain chain, System.Net.Security.SslPolicyErrors errors) {
+            if (errors == System.Net.Security.SslPolicyErrors.None) return true;
+            return PinnedThumbprint != null && cert != null &&
+                string.Equals(cert.GetCertHashString(), PinnedThumbprint, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     public class ProtoField {
         public string Name; public int Tag; public string Kind; public bool Repeated;
     }
